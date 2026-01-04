@@ -37,4 +37,5 @@ categorical_cols = [
     "service",
     "flag"
 ]
+
 X_encoded = pd.get_dummies(X, columns=categorical_cols)
