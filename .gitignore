@@ -1,1 +1,18 @@
+# OS junk
+.DS_Store
+
+# Backend artifacts
+backend/data/
+backend/model/
+
+# Python
 __pycache__/
+*.pyc
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+
+# Env
+.env*
