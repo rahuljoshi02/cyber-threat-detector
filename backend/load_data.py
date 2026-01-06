@@ -20,22 +20,21 @@ COLUMNS = [
     "class", "difficulty"
 ]
 
-
 df = pd.read_csv("data/KDDTrain+.txt", names=COLUMNS)
 
-df["is_threat"] = df["class"].apply(
-    lambda x: 0 if x == "normal" else 1
-)
-
+df["is_threat"] = df["class"].apply(lambda x: 0 if x == "normal" else 1)
 
 df = df.drop(columns=["difficulty"])
-X = df.drop(columns=["class", "is_threat"])
-y = df["is_threat"]
 
-categorical_cols = [
-    "protocol_type",
-    "service",
-    "flag"
+SIMPLE_FIELDS = [
+    "protocol_type", "service", "flag", "duration",
+    "src_bytes", "dst_bytes", "wrong_fragment",
+    "urgent", "hot", "num_failed_logins", "count",
+    "logged_in"
 ]
 
+X = df[SIMPLE_FIELDS]
+y = df["is_threat"]
+
+categorical_cols = ["protocol_type", "service", "flag"]
 X_encoded = pd.get_dummies(X, columns=categorical_cols)

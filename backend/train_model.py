@@ -1,43 +1,62 @@
 import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import OneHotEncoder
+from sklearn.compose import ColumnTransformer
+from sklearn.pipeline import Pipeline
 from sklearn.metrics import classification_report
 import joblib
 import os
 
+from load_data import X, y, SIMPLE_FIELDS
 
-from load_data import df, X_encoded, y
+categorical_cols = ["protocol_type", "service", "flag"]
 
 X_train, X_test, y_train, y_test = train_test_split(
-    X_encoded,
+    X,
     y,
     test_size=0.2,
     random_state=42,
     stratify=y
 )
 
-model = RandomForestClassifier(
-    n_estimators=100,
-    max_depth=20,
-    random_state=42,
-    n_jobs=-1
+#Create a preprocessor for categorical features
+preprocessor = ColumnTransformer(
+    transformers=[
+        ("cat", OneHotEncoder(handle_unknown="ignore"), categorical_cols)
+    ],
+    remainder="passthrough"
 )
 
-print("Training model...")
-model.fit(X_train, y_train)
+# --- Create a pipeline ---
+pipeline = Pipeline([
+    ("preprocessor", preprocessor),
+    ("classifier", RandomForestClassifier(
+        n_estimators=100,
+        max_depth=20,
+        random_state=42,
+        n_jobs=-1
+    ))
+])
 
-y_pred = model.predict(X_test)
+#Train pipeline
+print("Training model with pipeline...")
+print(f"Training samples: {len(X_train)}")
+print(f"Features: {SIMPLE_FIELDS}")
+pipeline.fit(X_train, y_train)
+
+#Evaluate
+y_pred = pipeline.predict(X_test)
+print("\nClassification Report:")
 print(classification_report(y_test, y_pred))
 
-y_probs = model.predict_proba(X_test)[:, 1]
-
-print("Sample probabilities:")
+y_probs = pipeline.predict_proba(X_test)[:, 1]
+print("\nSample threat probabilities:")
 print(y_probs[:10])
 
+#Save model and feature columns
 os.makedirs("model", exist_ok=True)
-
-joblib.dump(model, "model/threat_detector.pkl")
-
-joblib.dump(X_encoded.columns.tolist(), "model/feature_columns.pkl")
-
-print("Model and feature columns saved!")
+joblib.dump(pipeline, "model/threat_detector_simple.pkl")
+joblib.dump(SIMPLE_FIELDS, "model/feature_columns_simple.pkl")
+print("\nModel and feature columns saved successfully!")
+print(f"Saved to: model/threat_detector_simple.pkl")
