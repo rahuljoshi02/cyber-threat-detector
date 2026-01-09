@@ -1,10 +1,12 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import joblib
 import pandas as pd
 import os
 import traceback
+from typing import List
+import io
 
 app = FastAPI()
 
@@ -17,24 +19,21 @@ app.add_middleware(
 )
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-
 MODEL_PATH = os.path.join(BASE_DIR, "model", "threat_detector_simple.pkl")
 FEATURES_PATH = os.path.join(BASE_DIR, "model", "feature_columns_simple.pkl")
 
 print(f"Loading model from: {MODEL_PATH}")
 print(f"Loading features from: {FEATURES_PATH}")
 
-# Load the pipeline (includes preprocessor and classifier)
 try:
     pipeline = joblib.load(MODEL_PATH)
     feature_columns = joblib.load(FEATURES_PATH)
-    print(f"Model loaded successfully!")
-    print(f"Expected features: {feature_columns}")
+    print(f"✅ Model loaded successfully!")
+    print(f"✅ Expected features: {feature_columns}")
 except Exception as e:
-    print(f"Error loading model: {e}")
+    print(f"❌ Error loading model: {e}")
     raise
 
-# Define input schema for better validation
 class ThreatDetectionRequest(BaseModel):
     protocol_type: str
     service: str
@@ -50,6 +49,26 @@ class ThreatDetectionRequest(BaseModel):
     logged_in: int
 
 
+class CSVResultItem(BaseModel):
+    row: int
+    data: dict
+    is_threat: int
+    threat_probability: float
+    risk_level: str
+
+
+def get_risk_level(probability: float) -> str:
+    """Convert probability to risk level"""
+    if probability < 0.3:
+        return "Low"
+    elif probability < 0.6:
+        return "Medium"
+    elif probability < 0.85:
+        return "High"
+    else:
+        return "Critical"
+
+
 @app.post("/api/detect")
 async def detect_threat(data: ThreatDetectionRequest):
     try:
@@ -58,32 +77,12 @@ async def detect_threat(data: ThreatDetectionRequest):
         input_dict = data.model_dump()
         df = pd.DataFrame([input_dict])
         
-        print(f"DataFrame columns: {df.columns.tolist()}")
-        print(f"Expected columns: {feature_columns}")
-        
         df = df[feature_columns]
         
-        print(f"DataFrame shape: {df.shape}")
-        print(f"DataFrame values:\n{df}")
-        
-        # Make prediction using the pipeline
         prediction = pipeline.predict(df)[0]
         probability = pipeline.predict_proba(df)[0]
-        
-        print(f"Raw prediction: {prediction}")
-        print(f"Raw probabilities: {probability}")
-        
         threat_prob = float(probability[1])
-        
-        # Map probability to risk level
-        if threat_prob < 0.3:
-            risk = "Low"
-        elif threat_prob < 0.6:
-            risk = "Medium"
-        elif threat_prob < 0.85:
-            risk = "High"
-        else:
-            risk = "Critical"
+        risk = get_risk_level(threat_prob)
         
         result = {
             "is_threat": int(prediction),
@@ -98,6 +97,82 @@ async def detect_threat(data: ThreatDetectionRequest):
         print(f"Error during prediction:")
         print(traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"Prediction error: {str(e)}")
+
+
+@app.post("/api/detect_csv")
+async def detect_csv(file: UploadFile = File(...)):
+    """
+    Endpoint to handle CSV batch predictions
+    """
+    try:
+        # Validate file type
+        if not file.filename.endswith('.csv'):
+            raise HTTPException(status_code=400, detail="File must be a CSV")
+        
+        # Read CSV content
+        contents = await file.read()
+        df = pd.read_csv(io.StringIO(contents.decode('utf-8')))
+        
+        print(f"CSV uploaded: {file.filename}")
+        print(f"Rows: {len(df)}, Columns: {df.columns.tolist()}")
+        
+        # Validate required columns
+        required_cols = set(feature_columns)
+        missing_cols = required_cols - set(df.columns)
+        if missing_cols:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Missing required columns: {missing_cols}"
+            )
+        
+        # Ensure columns are in correct order and types
+        df_clean = df[feature_columns].copy()
+        
+        # Convert types
+        categorical_cols = ['protocol_type', 'service', 'flag']
+        for col in df_clean.columns:
+            if col in categorical_cols:
+                df_clean[col] = df_clean[col].astype(str)
+            else:
+                df_clean[col] = pd.to_numeric(df_clean[col], errors='coerce').fillna(0)
+        
+        # Batch prediction
+        predictions = pipeline.predict(df_clean)
+        probabilities = pipeline.predict_proba(df_clean)[:, 1]
+        
+        # Build results
+        results = []
+        for idx, (pred, prob) in enumerate(zip(predictions, probabilities)):
+            risk_level = get_risk_level(prob)
+            
+            results.append({
+                "row": idx + 1,  # 1-indexed for user display
+                "data": df.iloc[idx].to_dict(),
+                "is_threat": int(pred),
+                "threat_probability": float(prob),
+                "risk_level": risk_level
+            })
+        
+        # Calculate summary stats
+        total = len(results)
+        threats = sum(1 for r in results if r['is_threat'] == 1)
+        safe = total - threats
+        avg_probability = sum(r['threat_probability'] for r in results) / total if total > 0 else 0
+        
+        return {
+            "total": total,
+            "threats": threats,
+            "safe": safe,
+            "avg_probability": avg_probability,
+            "results": results
+        }
+    
+    except pd.errors.EmptyDataError:
+        raise HTTPException(status_code=400, detail="CSV file is empty")
+    except Exception as e:
+        print(f"Error processing CSV:")
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"CSV processing error: {str(e)}")
 
 
 @app.get("/")

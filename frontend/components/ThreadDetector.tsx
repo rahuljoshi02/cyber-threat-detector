@@ -9,9 +9,17 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
-import { Shield, ShieldAlert, Loader2, CheckCircle, AlertTriangle, XCircle } from "lucide-react"
+import { Shield, ShieldAlert, Loader2, CheckCircle, AlertTriangle, XCircle, Upload, FileText, Download } from "lucide-react"
 
 type ThreatResult = {
+    is_threat: number
+    threat_probability: number
+    risk_level: string
+}
+
+type CSVResult = {
+    row: number
+    data: Record<string, string | number>
     is_threat: number
     threat_probability: number
     risk_level: string
@@ -22,6 +30,7 @@ const SERVICE_OPTIONS = ["http", "ftp", "smtp", "ssh", "other"]
 const FLAG_OPTIONS = ["SF", "S0", "REJ", "RSTO", "RSTR", "OTH"]
 
 export function ThreatDetector() {
+    const [mode, setMode] = useState<"simple" | "batch">("simple")
     const [formData, setFormData] = useState({
         protocol_type: "",
         service: "",
@@ -40,6 +49,9 @@ export function ThreatDetector() {
     const [loading, setLoading] = useState(false)
     const [result, setResult] = useState<ThreatResult | null>(null)
     const [error, setError] = useState<string | null>(null)
+    
+    const [csvFile, setCSVFile] = useState<File | null>(null)
+    const [csvResults, setCSVResults] = useState<CSVResult[]>([])
 
     const handleInputChange = (field: string, value: string | boolean) => {
         setFormData(prev => ({ ...prev, [field]: value }))
@@ -89,6 +101,69 @@ export function ThreatDetector() {
         }
     }
 
+    const handleCSVUpload = async (e: React.FormEvent) => {
+        e.preventDefault()
+        if (!csvFile) return
+
+        setLoading(true)
+        setError(null)
+        setCSVResults([])
+
+        try {
+            const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"
+            
+            // Create FormData to send file
+            const formData = new FormData()
+            formData.append('file', csvFile)
+
+            const response = await fetch(`${API_URL}/api/detect_csv`, {
+                method: 'POST',
+                body: formData,
+            })
+
+            if (!response.ok) {
+                const errorData = await response.json()
+                throw new Error(errorData.detail || 'CSV processing failed')
+            }
+
+            const data = await response.json()
+            
+            // Update results from backend response
+            setCSVResults(data.results)
+            
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Failed to process CSV file')
+        } finally {
+            setLoading(false)
+        }
+    }
+
+    const downloadResults = () => {
+        if (csvResults.length === 0) return
+
+        const headers = ['Row', 'Threat Status', 'Probability (%)', 'Risk Level', 'Protocol', 'Service', 'Flag']
+        const csvContent = [
+            headers.join(','),
+            ...csvResults.map(r => [
+                r.row,
+                r.is_threat ? 'Threat' : 'Safe',
+                (r.threat_probability * 100).toFixed(2),
+                r.risk_level,
+                r.data.protocol_type || '',
+                r.data.service || '',
+                r.data.flag || ''
+            ].join(','))
+        ].join('\n')
+
+        const blob = new Blob([csvContent], { type: 'text/csv' })
+        const url = window.URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `threat_analysis_results_${new Date().getTime()}.csv`
+        a.click()
+        window.URL.revokeObjectURL(url)
+    }
+
     const getRiskColor = (level: string) => {
         switch (level.toLowerCase()) {
             case 'low': return 'bg-green-500'
@@ -111,20 +186,59 @@ export function ThreatDetector() {
         }
     }
 
+    const threatStats = csvResults.length > 0
+        ? {
+            total: csvResults.length,
+            threats: csvResults.filter((r) => r.is_threat).length,
+            safe: csvResults.filter((r) => !r.is_threat).length,
+            avgProbability: csvResults.reduce((sum, r) => sum + r.threat_probability, 0) / csvResults.length,
+        }
+        : null
+
     return (
         <div className="w-full max-w-4xl mx-auto p-4 space-y-6">
             <Card>
                 <CardHeader>
-                    <CardTitle className="text-2xl font-bold flex items-center gap-2">
-                        <Shield className="h-6 w-6" />
-                        Cyber Threat Detector
-                    </CardTitle>
-                    <CardDescription>
-                        Analyze network connections for potential security threats
-                    </CardDescription>
+                    <div className="flex items-center justify-between">
+                        <div>
+                            <CardTitle className="text-2xl font-bold flex items-center gap-2">
+                                <Shield className="h-6 w-6" />
+                                Cyber Threat Detector
+                            </CardTitle>
+                            <CardDescription className="mt-2">
+                                {mode === "simple" 
+                                    ? "Analyze network connections for potential security threats"
+                                    : "Upload a CSV file to analyze multiple connections at once"}
+                            </CardDescription>
+                        </div>
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                                setMode(mode === "simple" ? "batch" : "simple")
+                                setResult(null)
+                                setCSVResults([])
+                                setCSVFile(null)
+                                setError(null)
+                            }}
+                        >
+                            {mode === "simple" ? (
+                                <>
+                                    <Upload className="mr-2 h-4 w-4" />
+                                    Batch Mode
+                                </>
+                            ) : (
+                                <>
+                                    <Shield className="mr-2 h-4 w-4" />
+                                    Simple Mode
+                                </>
+                            )}
+                        </Button>
+                    </div>
                 </CardHeader>
                 <CardContent>
-                    <form onSubmit={handleSubmit} className="space-y-6">
+                    {mode === "simple" ? (
+                        <form onSubmit={handleSubmit} className="space-y-6">
                         {/* Connection Information */}
                         <div className="space-y-4">
                             <h3 className="text-lg font-semibold">Connection Information</h3>
@@ -350,8 +464,52 @@ export function ThreatDetector() {
                             )}
                         </Button>
                     </form>
-                </CardContent>
-            </Card>
+                ) : (
+                    <form onSubmit={handleCSVUpload} className="space-y-6">
+                        <div className="space-y-2">
+                            <Label htmlFor="csv-file">CSV File</Label>
+                            <div className="flex items-center gap-4">
+                                <Input
+                                    id="csv-file"
+                                    type="file"
+                                    accept=".csv"
+                                    onChange={(e) => setCSVFile(e.target.files?.[0] || null)}
+                                    required
+                                    className="flex-1"
+                                />
+                                {csvFile && (
+                                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                        <FileText className="h-4 w-4" />
+                                        <span>{csvFile.name}</span>
+                                    </div>
+                                )}
+                            </div>
+                            <p className="text-xs text-muted-foreground">
+                                CSV must include: protocol_type, service, flag, duration, src_bytes, dst_bytes, wrong_fragment, urgent, hot, num_failed_logins, count, logged_in
+                            </p>
+                        </div>
+
+                        <Button
+                            type="submit"
+                            disabled={loading || !csvFile}
+                            className="w-full"
+                        >
+                            {loading ? (
+                                <>
+                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                    Analyzing CSV...
+                                </>
+                            ) : (
+                                <>
+                                    <Upload className="mr-2 h-4 w-4" />
+                                    Analyze CSV File
+                                </>
+                            )}
+                        </Button>
+                    </form>
+                )}
+            </CardContent>
+        </Card>
 
             {/* Results */}
             {error && (
@@ -362,7 +520,7 @@ export function ThreatDetector() {
                 </Alert>
             )}
 
-            {result && (
+            {mode === "simple" && result && (
                 <Card className={`border-2 ${result.is_threat ? 'border-red-500' : 'border-green-500'}`}>
                     <CardHeader>
                         <CardTitle className="flex items-center justify-between">
@@ -417,6 +575,81 @@ export function ThreatDetector() {
                         )}
                     </CardContent>
                 </Card>
+            )}
+
+            {mode === "batch" && csvResults.length > 0 && (
+                <>
+                    <Card>
+                        <CardHeader>
+                            <div className="flex items-center justify-between">
+                                <CardTitle>Analysis Summary</CardTitle>
+                                <Button onClick={downloadResults} variant="outline" size="sm">
+                                    <Download className="mr-2 h-4 w-4" />
+                                    Export Results
+                                </Button>
+                            </div>
+                        </CardHeader>
+                        <CardContent>
+                            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                                <div className="p-4 rounded-lg bg-muted">
+                                    <div className="text-2xl font-bold">{threatStats?.total}</div>
+                                    <div className="text-xs text-muted-foreground">Total Analyzed</div>
+                                </div>
+                                <div className="p-4 rounded-lg bg-red-50 border border-red-200">
+                                    <div className="text-2xl font-bold text-red-600">{threatStats?.threats}</div>
+                                    <div className="text-xs text-muted-foreground">Threats Detected</div>
+                                </div>
+                                <div className="p-4 rounded-lg bg-green-50 border border-green-200">
+                                    <div className="text-2xl font-bold text-green-600">{threatStats?.safe}</div>
+                                    <div className="text-xs text-muted-foreground">Safe Connections</div>
+                                </div>
+                                <div className="p-4 rounded-lg bg-yellow-50 border border-yellow-200">
+                                    <div className="text-2xl font-bold text-yellow-600">
+                                        {((threatStats?.avgProbability || 0) * 100).toFixed(1)}%
+                                    </div>
+                                    <div className="text-xs text-muted-foreground">Avg Threat Probability</div>
+                                </div>
+                            </div>
+                        </CardContent>
+                    </Card>
+
+                    <Card>
+                        <CardHeader>
+                            <CardTitle>Detailed Results ({csvResults.length} rows)</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                            <div className="space-y-2 max-h-96 overflow-y-auto">
+                                {csvResults.map((result) => (
+                                    <div
+                                        key={result.row}
+                                        className={`p-4 rounded-lg border-2 ${
+                                            result.is_threat 
+                                                ? 'bg-red-50 border-red-200' 
+                                                : 'bg-green-50 border-green-200'
+                                        }`}
+                                    >
+                                        <div className="flex items-center justify-between mb-2">
+                                            <div className="flex items-center gap-2">
+                                                {getRiskIcon(result.is_threat, result.risk_level)}
+                                                <span className="font-medium">Row {result.row}</span>
+                                                <Badge className={getRiskColor(result.risk_level)}>
+                                                    {result.risk_level}
+                                                </Badge>
+                                            </div>
+                                            <span className="text-sm font-medium">
+                                                {(result.threat_probability * 100).toFixed(2)}% probability
+                                            </span>
+                                        </div>
+                                        <div className="text-sm text-muted-foreground">
+                                            {result.data.protocol_type} · {result.data.service} · {result.data.flag} · 
+                                            {result.data.duration}s · {result.data.src_bytes} bytes
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </CardContent>
+                    </Card>
+                </>
             )}
         </div>
     )
