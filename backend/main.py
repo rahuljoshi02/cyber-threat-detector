@@ -7,6 +7,7 @@ import os
 import traceback
 from typing import List
 import io
+import requests
 
 app = FastAPI()
 
@@ -22,16 +23,31 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 MODEL_PATH = os.path.join(BASE_DIR, "model", "threat_detector_simple.pkl")
 FEATURES_PATH = os.path.join(BASE_DIR, "model", "feature_columns_simple.pkl")
 
+MODEL_URL = "https://drive.google.com/uc?export=download&id=1GlhuCKMPDCVh64rpVLh7J5k0HE88n2-c"
+FEATURES_URL = "https://drive.google.com/uc?export=download&id=128_PHq1khnDEmzpmvbBvTxbNbGcz82BC"
+
 print(f"Loading model from: {MODEL_PATH}")
 print(f"Loading features from: {FEATURES_PATH}")
 
+def download_if_missing(file_path: str, url: str):
+    if not os.path.exists(file_path):
+        print(f"Downloading {file_path} from Drive…")
+        response = requests.get(url)
+        response.raise_for_status()
+        with open(file_path, "wb") as f:
+            f.write(response.content)
+        print(f"Download complete: {file_path}")
+
 try:
+    download_if_missing(MODEL_PATH, MODEL_URL)
+    download_if_missing(FEATURES_PATH, FEATURES_URL)
+
     pipeline = joblib.load(MODEL_PATH)
     feature_columns = joblib.load(FEATURES_PATH)
-    print(f"✅ Model loaded successfully!")
-    print(f"✅ Expected features: {feature_columns}")
+
+    print("Loaded model and feature columns successfully")
 except Exception as e:
-    print(f"❌ Error loading model: {e}")
+    print(f"Error loading model or features: {e}")
     raise
 
 class ThreatDetectionRequest(BaseModel):
