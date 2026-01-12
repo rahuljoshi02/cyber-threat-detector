@@ -14,38 +14,37 @@ This project emphasizes **software engineering principles** such as clean API de
 
 ## 🧠 Key Features
 
-* **ML-based Intrusion Detection**
+* **ML-based Intrusion Detection**  
   Trained machine learning models on the NSL-KDD dataset to classify network connections as benign or malicious.
 
 * **Dual Input Modes**
 
-  * *Simple Mode*: Form-based input for guided, single-record analysis
+  * *Simple Mode*: Form-based input for guided, single-record analysis  
   * *Advanced Mode*: CSV upload for batch evaluation of multiple network records
 
-* **Modular Backend Architecture**
+* **Modular Backend Architecture**  
   FastAPI-based backend responsible for feature preprocessing, model inference, and REST API exposure.
 
-* **Interactive Frontend**
+* **Interactive Frontend**  
   Next.js frontend that consumes backend APIs and provides a clean, responsive interface for analysis and results visualization.
 
-* **Configurable Alerting**
+* **Configurable Alerting**  
   Threshold-based classification logic to surface high-risk traffic patterns while reducing false positives.
 
 ---
 
 ## 🏗️ System Architecture
 
-```
-Next.js Frontend
-       ↓
-REST API (FastAPI)
-       ↓
-Feature Preprocessing & Validation
-       ↓
-ML Model Inference (scikit-learn)
-       ↓
+Next.js Frontend  
+↓  
+REST API (FastAPI)  
+↓  
+Feature Preprocessing & Validation  
+↓  
+ML Model Inference (scikit-learn)  
+↓  
 Prediction & Risk Classification
-```
+
 
 ---
 
@@ -81,23 +80,25 @@ The project uses the **NSL-KDD** dataset, a refined version of the KDD Cup 1999 
 
 The backend exposes RESTful endpoints that support:
 
-* Single-record prediction via JSON payloads
-* Batch prediction via CSV file upload
+* Single-record prediction via JSON payloads (`/api/detect`)  
+* Batch prediction via CSV file upload (`/api/detect_csv`)  
 * Input validation and feature normalization
 
 These APIs are designed to be easily extended to support additional models or input formats.
 
 ---
 
-## 🧪 Model Evaluation
+## 🌐 Live Deployment
 
-Model performance is evaluated using standard train-test splits and cross-validation techniques. Evaluation focuses on:
+* **Frontend (Vercel)**: [https://cyber-threat-detector-iota.vercel.app/](https://cyber-threat-detector-iota.vercel.app/)  
+  - Publicly accessible; anyone with the link can view and interact with the interface.
 
-* Classification accuracy
-* False positive reduction
-* Consistency across unseen network traffic
+* **Backend API (Render)**: [https://cyber-threat-detector-api-50ps.onrender.com/](https://cyber-threat-detector-api-50ps.onrender.com/)  
+  - Supports REST endpoints for single and batch prediction.  
+  - ⚠️ Currently public with no authentication, so API calls can be made by anyone who knows the URL.
 
 ---
+
 
 ## 🐳 Deployment
 
@@ -125,6 +126,3 @@ This project was built to deepen understanding of:
 
 ---
 
-## 📄 License
-
-This project is for educational and demonstration purposes.
